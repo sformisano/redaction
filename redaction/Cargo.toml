@@ -1,0 +1,32 @@
+[package]
+name = "redaction"
+version.workspace = true
+edition.workspace = true
+description = "Layered data redaction controls: classification and redaction"
+license.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/redaction"
+homepage.workspace = true
+readme = "../README.md"
+keywords = ["redaction", "privacy", "security", "logging", "telemetry"]
+categories = ["development-tools", "data-structures"]
+# Explicitly include only what should be published to crates.io
+# Note: LICENSE.md and SECURITY.md are available in the source repository (linked via 'repository' field)
+include = ["src/**/*", "Cargo.toml", "../README.md"]
+
+[features]
+default = ["classification", "policy"]
+classification = []
+policy = ["classification"]
+slog = ["policy", "dep:serde", "dep:serde_json", "dep:slog", "redaction-derive/slog"]
+testing = []
+
+[dependencies]
+redaction-derive = { version = "0.1.1", path = "../redaction-derive" }
+serde = { version = "1", optional = true, features = ["derive"] }
+serde_json = { version = "1", optional = true }
+slog = { version = "2", optional = true, features = ["nested-values"] }
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+trybuild = "1"

@@ -1,0 +1,20 @@
+[workspace]
+members = ["redaction", "redaction-derive"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/sformisano/redaction"
+documentation = "https://docs.rs/redaction"
+homepage = "https://github.com/sformisano/redaction"
+authors = []
+
+[workspace.dependencies]
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "2.0", features = ["extra-traits"] }
+
+[patch.crates-io]
+redaction-derive = { path = "redaction-derive" }

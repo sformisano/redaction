@@ -1,0 +1,25 @@
+[package]
+name = "redaction-derive"
+version.workspace = true
+edition.workspace = true
+description = "Proc-macro derive for Sensitive classification traversal"
+license.workspace = true
+repository.workspace = true
+documentation = "https://docs.rs/redaction-derive"
+homepage.workspace = true
+keywords = ["redaction", "privacy", "security", "macro", "derive"]
+categories = ["development-tools"]
+
+[lib]
+proc-macro = true
+
+[features]
+default = []
+# When enabled, generates slog::Value impl for derived types
+slog = []
+
+[dependencies]
+proc-macro2 = { workspace = true }
+proc-macro-crate = "2.0"
+quote = { workspace = true }
+syn = { workspace = true }

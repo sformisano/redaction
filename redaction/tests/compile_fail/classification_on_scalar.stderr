@@ -1,0 +1,13 @@
+error: scalar fields cannot use a classification: use bare #[sensitive]. Scalars redact to their default value (0, false, etc.), except char which redacts to 'X'.
+  --> tests/compile_fail/classification_on_scalar.rs:12:5
+   |
+12 |     #[sensitive(Secret)]
+   |     ^
+
+warning: unused import: `Secret`
+ --> tests/compile_fail/classification_on_scalar.rs:6:17
+  |
+6 | use redaction::{Secret, Sensitive};
+  |                 ^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
