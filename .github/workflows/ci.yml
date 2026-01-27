@@ -18,13 +18,18 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
+          components: clippy
+
+      - name: Install nightly for rustfmt
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
 
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
       - name: Format
-        run: cargo fmt --all -- --check
+        run: cargo +nightly fmt --all -- --check
 
       - name: Clippy
         run: cargo clippy --all --all-targets --all-features -- -D warnings -D rust-2018-idioms -D rust-2021-compatibility -A deprecated -A dead-code
