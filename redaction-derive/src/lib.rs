@@ -381,7 +381,6 @@ fn expand(input: DeriveInput, slog_mode: SlogMode) -> Result<TokenStream> {
             .cloned()
             .unwrap_or_else(TokenStream::new);
         quote! {
-            #[cfg(feature = "slog")]
             impl #display_impl_generics #crate_root::slog::RedactedDisplay for #ident #display_ty_generics #display_where_clause {
                 fn fmt_redacted(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                     #redacted_display_body
