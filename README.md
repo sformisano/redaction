@@ -463,6 +463,14 @@ redaction = { version = "0.1", features = ["testing"] }
 
 - [API Documentation](https://docs.rs/redaction)
 
+## Development
+
+To set up git hooks for pre-commit checks (fmt, clippy, tests):
+
+```bash
+git config core.hooksPath .githooks
+```
+
 ## License
 
 Licensed under the MIT license ([LICENSE.md](LICENSE.md) or [opensource.org/licenses/MIT](https://opensource.org/licenses/MIT)).

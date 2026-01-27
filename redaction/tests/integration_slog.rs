@@ -7,15 +7,14 @@
 
 #![cfg(feature = "slog")]
 
-use redaction::slog::IntoRedactedJson;
+use std::{cell::RefCell, collections::HashMap, fmt::Arguments};
+
 use redaction::{
-    Classification, Pii, RedactionPolicy, Secret, Sensitive, TextRedactionPolicy, Token,
+    slog::IntoRedactedJson, Classification, Pii, RedactionPolicy, Secret, Sensitive,
+    TextRedactionPolicy, Token,
 };
 use serde::Serialize;
 use serde_json::Value as JsonValue;
-use std::cell::RefCell;
-use std::collections::HashMap;
-use std::fmt::Arguments;
 
 // A test serializer that captures serialized key-value pairs
 struct CapturingSerializer {
@@ -125,7 +124,7 @@ fn serialize_to_capture<V: slog::Value, S: slog::Serializer>(
     // We need to ensure format_args! result lives long enough
     let args = format_args!("");
     let record = slog::Record::new(&RS, &args, slog::b!());
-    value.serialize(&record, key.into(), serializer).unwrap();
+    value.serialize(&record, key, serializer).unwrap();
 }
 
 // ============================================================================

@@ -53,10 +53,8 @@ pub(crate) fn generate_field_transform(
             // No trait bounds needed - any type can pass through
             // Still track for Debug impl
             collect_generics_from_type(ty, ctx.generics, ctx.debug_unredacted_generics);
-            Ok(quote_spanned! { span =>
-                // Field passes through unchanged (no #[sensitive] annotation)
-                let #binding = #binding;
-            })
+            // No code generation needed - the binding from destructuring is used directly
+            Ok(TokenStream::new())
         }
         // Bare #[sensitive]: walk containers or redact scalars
         Strategy::Walk => {
