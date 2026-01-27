@@ -64,6 +64,8 @@
 #[allow(unused_extern_crates)]
 extern crate proc_macro;
 
+#[cfg(feature = "slog")]
+use proc_macro2::Span;
 use proc_macro2::{Ident, TokenStream};
 use proc_macro_crate::{crate_name, FoundCrate};
 use quote::{format_ident, quote};
@@ -113,7 +115,9 @@ use generics::{add_classified_value_bounds, add_container_bounds, add_debug_boun
 ///   on the container to opt out.
 /// - `slog::Value` (behind `cfg(feature = "slog")`): implemented by cloning the value and routing
 ///   it through `redaction::slog::IntoRedactedJson`. **Note:** this impl requires the type to
-///   implement `Clone`.
+///   implement `Clone`. The derive first looks for a top-level `slog` crate; if not found, it
+///   checks the `REDACTION_SLOG_CRATE` env var for an alternate path (e.g., `my_log::slog`). If
+///   neither is available, compilation fails with a clear error.
 #[proc_macro_derive(Sensitive, attributes(sensitive))]
 pub fn derive_sensitive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -135,6 +139,39 @@ fn crate_root() -> proc_macro2::TokenStream {
             quote! { ::#ident }
         }
         Err(_) => quote! { ::redaction },
+    }
+}
+
+/// Returns the token stream to reference the slog crate root.
+///
+/// Handles crate renaming (e.g., `my_slog = { package = "slog", ... }`).
+/// If the top-level `slog` crate is not available, falls back to the
+/// `REDACTION_SLOG_CRATE` env var, which should be a path like `my_log::slog`.
+#[cfg(feature = "slog")]
+fn slog_crate() -> Result<proc_macro2::TokenStream> {
+    match crate_name("slog") {
+        Ok(FoundCrate::Itself) => Ok(quote! { crate }),
+        Ok(FoundCrate::Name(name)) => {
+            let ident = format_ident!("{}", name);
+            Ok(quote! { ::#ident })
+        }
+        Err(_) => {
+            let env_value = std::env::var("REDACTION_SLOG_CRATE").map_err(|_| {
+                syn::Error::new(
+                    Span::call_site(),
+                    "slog support is enabled, but no top-level `slog` crate was found. \
+Set the REDACTION_SLOG_CRATE env var to a path (e.g., `my_log::slog`) or add \
+`slog` as a direct dependency.",
+                )
+            })?;
+            let path = syn::parse_str::<syn::Path>(&env_value).map_err(|_| {
+                syn::Error::new(
+                    Span::call_site(),
+                    format!("REDACTION_SLOG_CRATE must be a valid Rust path (got `{env_value}`)"),
+                )
+            })?;
+            Ok(quote! { #path })
+        }
     }
 }
 
@@ -241,10 +278,10 @@ fn expand(input: DeriveInput) -> Result<TokenStream> {
     };
 
     // Only generate slog impl when the slog feature is enabled on redaction-derive.
-    // This is checked at macro compile time, not in generated code, so downstream
-    // crates don't need to define a slog feature themselves.
+    // If slog is not available, emit a clear error with instructions.
     #[cfg(feature = "slog")]
     let slog_impl = {
+        let slog_crate = slog_crate()?;
         let mut slog_generics = generics;
         let slog_where_clause = slog_generics.make_where_clause();
         let self_ty: syn::Type = parse_quote!(#ident #ty_generics);
@@ -262,15 +299,15 @@ fn expand(input: DeriveInput) -> Result<TokenStream> {
         let (slog_impl_generics, slog_ty_generics, slog_where_clause) =
             slog_generics.split_for_impl();
         quote! {
-            impl #slog_impl_generics ::slog::Value for #ident #slog_ty_generics #slog_where_clause {
+            impl #slog_impl_generics #slog_crate::Value for #ident #slog_ty_generics #slog_where_clause {
                 fn serialize(
                     &self,
-                    _record: &::slog::Record<'_>,
-                    key: ::slog::Key,
-                    serializer: &mut dyn ::slog::Serializer,
-                ) -> ::slog::Result {
+                    _record: &#slog_crate::Record<'_>,
+                    key: #slog_crate::Key,
+                    serializer: &mut dyn #slog_crate::Serializer,
+                ) -> #slog_crate::Result {
                     let redacted = #crate_root::slog::IntoRedactedJson::into_redacted_json(self.clone());
-                    ::slog::Value::serialize(&redacted, _record, key, serializer)
+                    #slog_crate::Value::serialize(&redacted, _record, key, serializer)
                 }
             }
         }
