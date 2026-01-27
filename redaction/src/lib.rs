@@ -73,7 +73,7 @@
 // Allow some lints while testing
 #![cfg_attr(test, allow(clippy::non_ascii_literal, clippy::unwrap_used))]
 
-pub use redaction_derive::Sensitive;
+pub use redaction_derive::{Sensitive, SensitiveError};
 
 #[allow(unused_extern_crates)]
 extern crate self as redact;
@@ -94,8 +94,8 @@ pub use classification::{
 };
 #[cfg(feature = "policy")]
 pub use redaction::{
-    redact, KeepConfig, MaskConfig, Redactable, RedactionPolicy, ScalarRedaction, SensitiveValue,
-    TextRedactionPolicy, REDACTED_PLACEHOLDER,
+    apply_classification, redact, KeepConfig, MaskConfig, Redactable, RedactionPolicy,
+    ScalarRedaction, SensitiveValue, TextRedactionPolicy, REDACTED_PLACEHOLDER,
 };
 #[doc(hidden)]
 #[cfg(feature = "policy")]

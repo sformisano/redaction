@@ -102,3 +102,40 @@ pub(crate) fn add_debug_bounds(
     }
     generics
 }
+
+pub(crate) fn add_display_bounds(
+    mut generics: syn::Generics,
+    used_generics: &[Ident],
+) -> syn::Generics {
+    for param in generics.type_params_mut() {
+        if used_generics.iter().any(|g| g == &param.ident) {
+            param.bounds.push(parse_quote!(::core::fmt::Display));
+        }
+    }
+    generics
+}
+
+pub(crate) fn add_clone_bounds(
+    mut generics: syn::Generics,
+    used_generics: &[Ident],
+) -> syn::Generics {
+    for param in generics.type_params_mut() {
+        if used_generics.iter().any(|g| g == &param.ident) {
+            param.bounds.push(parse_quote!(::core::clone::Clone));
+        }
+    }
+    generics
+}
+
+pub(crate) fn add_redacted_display_bounds(
+    mut generics: syn::Generics,
+    used_generics: &[Ident],
+) -> syn::Generics {
+    for param in generics.type_params_mut() {
+        if used_generics.iter().any(|g| g == &param.ident) {
+            let redacted_display_path = crate_path("slog::RedactedDisplay");
+            param.bounds.push(parse_quote!(#redacted_display_path));
+        }
+    }
+    generics
+}

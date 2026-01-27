@@ -314,7 +314,8 @@ TextRedactionPolicy::mask_last(4)             // "secret123" → "secre****"
 
 ## Logging with slog
 
-With the `slog` feature, `Sensitive` types automatically redact when logged:
+With the `slog` feature, `Sensitive` types automatically redact when logged as
+structured JSON:
 
 ```toml
 [dependencies]
@@ -334,13 +335,61 @@ struct LoginEvent {
 slog::info!(logger, "login"; "event" => event);
 ```
 
-**Requirements:**
-- Type must implement `Clone`
-- Type must implement `serde::Serialize` (for the redacted output)
+**Structured JSON requirements (why they exist):**
+- Type must implement `Clone` so the redacted JSON payload can be built without
+  consuming the original value.
+- Type must implement `serde::Serialize` because structured logging emits JSON
+  derived from the redacted copy.
+
+If those bounds are too strict, use `SensitiveError` instead to log a redacted
+string without requiring `Serialize`.
+
+### Logging errors without Serialize
+
+For types that cannot or should not derive `Serialize`, use `SensitiveError`. It
+emits the same redacted `Debug` output, but logs as a string using a redacted
+display template rather than JSON:
+
+```rust
+use redaction::{Secret, SensitiveError};
+
+#[derive(SensitiveError)]
+enum LoginError {
+    #[error("invalid login for {username} {password}")]
+    InvalidCredentials {
+        username: String,
+        #[sensitive(Secret)]
+        password: String,
+    },
+    Io(std::io::Error), // not serializable
+}
+
+slog::error!(logger, "login failed"; "error" => err);
+```
+
+This path does not require `Serialize` on the type. `SensitiveError` generates a
+`RedactedDisplay` implementation used by the `slog` adapter, so your error’s
+normal `Display` (from `thiserror` or `displaydoc`) can remain unchanged while
+logs still use a redacted string.
+
+**Template rules and bounds:**
+- Template required: `#[error("...")]` or doc comments (derive fails otherwise)
+- Pass-through `{field}` uses `Display`; `{field:?}` uses `Debug`
+- `#[sensitive(Classification)]` in template: `Clone + Display` (or `Debug` for `:?`)
+- `#[sensitive]` scalars use defaults (no extra bounds)
+- `#[sensitive]` non-scalars in template must derive `SensitiveError`
 
 ---
 
 ## Reference
+
+### Trait Bound Summary
+
+- Traversal: `#[sensitive]` on non-scalars requires `SensitiveType`
+- Classification: `#[sensitive(Classification)]` requires `Classifiable`
+- Debug: fields shown in `Debug` output require `Debug`
+- `slog` JSON (`Sensitive`): the type itself requires `Clone + Serialize + IntoRedactedJson`
+- `slog` string (`SensitiveError`): see template rules above (bounds are template-dependent)
 
 ### Trait Concepts
 

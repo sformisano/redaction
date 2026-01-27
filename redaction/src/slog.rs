@@ -50,6 +50,38 @@ impl SlogValue for RedactedJson {
     }
 }
 
+/// Formats a redacted string representation without requiring `Clone` or `Serialize`.
+///
+/// This is intended for types (often errors) that want redacted logging output
+/// while keeping their own `Display` implementations.
+pub trait RedactedDisplay {
+    /// Formats a redacted representation of `self`.
+    fn fmt_redacted(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+
+    /// Returns a wrapper that implements `Display` using `fmt_redacted`.
+    fn redacted_display(&self) -> RedactedDisplayWrapper<'_, Self>
+    where
+        Self: Sized,
+    {
+        RedactedDisplayWrapper(self)
+    }
+}
+
+/// Display wrapper that uses `RedactedDisplay::fmt_redacted`.
+pub struct RedactedDisplayWrapper<'a, T: ?Sized>(&'a T);
+
+impl<T: RedactedDisplay + ?Sized> fmt::Display for RedactedDisplayWrapper<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt_redacted(f)
+    }
+}
+
+impl<T: RedactedDisplay + ?Sized> fmt::Debug for RedactedDisplayWrapper<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt_redacted(f)
+    }
+}
+
 /// Converts values into a `slog::Value` that logs their redacted form as JSON.
 ///
 /// Calling `into_redacted_json` consumes the value, computes `self.redact()`,

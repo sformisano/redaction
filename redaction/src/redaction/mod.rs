@@ -15,5 +15,5 @@ mod sensitive;
 pub use policy::{
     KeepConfig, MaskConfig, RedactionPolicy, TextRedactionPolicy, REDACTED_PLACEHOLDER,
 };
-pub use redact::{redact, Classifiable, RedactionMapper, ScalarRedaction};
+pub use redact::{apply_classification, redact, Classifiable, RedactionMapper, ScalarRedaction};
 pub use sensitive::{Redactable, SensitiveType, SensitiveValue};

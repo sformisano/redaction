@@ -7,11 +7,11 @@
 
 #![cfg(feature = "slog")]
 
-use std::{cell::RefCell, collections::HashMap, fmt::Arguments};
+use std::{cell::RefCell, collections::HashMap, fmt, fmt::Arguments};
 
 use redaction::{
     slog::IntoRedactedJson, Classification, Pii, RedactionPolicy, Secret, Sensitive,
-    TextRedactionPolicy, Token,
+    SensitiveError, TextRedactionPolicy, Token,
 };
 use serde::Serialize;
 use serde_json::Value as JsonValue;
@@ -187,14 +187,204 @@ fn test_into_redacted_json_with_pii() {
         let phone = json["phone"].as_str().unwrap();
 
         // Email should be partially masked (last 4 visible)
-        assert!(email.ends_with(".com"));
-        assert!(email.contains('*'));
+        assert_eq!(email, "*************.com");
 
         // Phone should be partially masked (last 4 visible)
-        assert!(phone.ends_with("4567"));
-        assert!(phone.contains('*'));
+        assert_eq!(phone, "********4567");
     } else {
         panic!("Expected Serde value for 'contact' key");
+    }
+}
+
+#[test]
+fn test_sensitive_error_emits_redacted_string() {
+    #[derive(Debug)]
+    struct NonSerializable {
+        _detail: String,
+    }
+
+    #[derive(SensitiveError)]
+    enum LoginError {
+        #[error("invalid login for {username} {password} {context:?} {attempts}")]
+        InvalidCredentials {
+            username: String,
+            #[sensitive(Secret)]
+            password: String,
+            context: NonSerializable,
+            #[sensitive]
+            attempts: usize,
+        },
+    }
+
+    let err = LoginError::InvalidCredentials {
+        username: "alice".into(),
+        password: "hunter2".into(),
+        context: NonSerializable {
+            _detail: "remote".into(),
+        },
+        attempts: 3,
+    };
+
+    let mut serializer = CapturingSerializer::new();
+    serialize_to_capture(&err, "error", &mut serializer);
+
+    if let Some(CapturedValue::Str(value)) = serializer.get("error") {
+        assert_eq!(
+            value,
+            "invalid login for alice [REDACTED] NonSerializable { _detail: \"remote\" } 0"
+        );
+    } else {
+        panic!("Expected Str value for 'error' key");
+    }
+}
+
+#[test]
+fn test_sensitive_error_nested_and_policy_display() {
+    #[derive(SensitiveError)]
+    enum InnerError {
+        #[error("token {token}")]
+        Token {
+            #[sensitive(Token)]
+            token: String,
+        },
+    }
+
+    #[derive(SensitiveError)]
+    enum OuterError {
+        #[error("user {user} {inner}")]
+        Failure {
+            user: String,
+            #[sensitive]
+            inner: InnerError,
+        },
+    }
+
+    let err = OuterError::Failure {
+        user: "alice".into(),
+        inner: InnerError::Token {
+            token: "tok_live_abcdef".into(),
+        },
+    };
+
+    let mut serializer = CapturingSerializer::new();
+    serialize_to_capture(&err, "error", &mut serializer);
+
+    if let Some(CapturedValue::Str(value)) = serializer.get("error") {
+        assert_eq!(value, "user alice token ***********cdef");
+    } else {
+        panic!("Expected Str value for 'error' key");
+    }
+}
+
+#[test]
+fn test_sensitive_error_doc_comment_template() {
+    #[derive(SensitiveError)]
+    enum DocError {
+        /// user {user} {secret}
+        Variant {
+            user: String,
+            #[sensitive(Secret)]
+            secret: String,
+        },
+    }
+
+    let err = DocError::Variant {
+        user: "bob".into(),
+        secret: "super_secret".into(),
+    };
+
+    let mut serializer = CapturingSerializer::new();
+    serialize_to_capture(&err, "error", &mut serializer);
+
+    if let Some(CapturedValue::Str(value)) = serializer.get("error") {
+        assert_eq!(value, "user bob [REDACTED]");
+    } else {
+        panic!("Expected Str value for 'error' key");
+    }
+}
+
+#[test]
+fn test_sensitive_error_error_attr_named_and_debug_specifiers() {
+    struct ModeValue;
+
+    impl fmt::Display for ModeValue {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("display")
+        }
+    }
+
+    impl fmt::Debug for ModeValue {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("debug")
+        }
+    }
+
+    #[derive(SensitiveError)]
+    enum LoginError {
+        #[error("user {user} mode {mode} ctx {context:?} secret {password}")]
+        Invalid {
+            user: String,
+            mode: ModeValue,
+            context: ModeValue,
+            #[sensitive(Secret)]
+            password: String,
+        },
+    }
+
+    let err = LoginError::Invalid {
+        user: "alice".into(),
+        mode: ModeValue,
+        context: ModeValue,
+        password: "hunter2".into(),
+    };
+
+    let mut serializer = CapturingSerializer::new();
+    serialize_to_capture(&err, "error", &mut serializer);
+
+    if let Some(CapturedValue::Str(value)) = serializer.get("error") {
+        assert_eq!(value, "user alice mode display ctx debug secret [REDACTED]");
+    } else {
+        panic!("Expected Str value for 'error' key");
+    }
+}
+
+#[test]
+fn test_sensitive_error_error_attr_positional_fields() {
+    #[derive(SensitiveError)]
+    enum PositionalError {
+        #[error("code {0} secret {1}")]
+        Invalid(String, #[sensitive(Secret)] String),
+    }
+
+    let err = PositionalError::Invalid("E123".into(), "super_secret".into());
+
+    let mut serializer = CapturingSerializer::new();
+    serialize_to_capture(&err, "error", &mut serializer);
+
+    if let Some(CapturedValue::Str(value)) = serializer.get("error") {
+        assert_eq!(value, "code E123 secret [REDACTED]");
+    } else {
+        panic!("Expected Str value for 'error' key");
+    }
+}
+
+#[test]
+fn test_sensitive_error_doc_comment_positional_fields() {
+    #[derive(SensitiveError)]
+    enum DocPositionalError {
+        /// code {0} pii {1:?}
+        Invalid(String, #[sensitive(Pii)] String),
+    }
+
+    let err = DocPositionalError::Invalid("E42".into(), "alice@example.com".into());
+
+    let mut serializer = CapturingSerializer::new();
+    serialize_to_capture(&err, "error", &mut serializer);
+
+    if let Some(CapturedValue::Str(value)) = serializer.get("error") {
+        assert_eq!(value, "code E42 pii \"*************.com\"");
+    } else {
+        panic!("Expected Str value for 'error' key");
     }
 }
 
@@ -239,7 +429,7 @@ fn test_into_redacted_json_nested_struct() {
 
         // Address street should be partially masked (Pii = last 4 visible)
         let street = json["address"]["street"].as_str().unwrap();
-        assert!(street.contains('*'));
+        assert_eq!(street, "***********reet");
 
         // City should be unchanged (no classification)
         assert_eq!(json["address"]["city"], "Springfield");
@@ -274,10 +464,9 @@ fn test_into_redacted_json_with_vec() {
         assert_eq!(tokens.len(), 3);
 
         // Token classification uses Keep(last 4) - shows last 4 chars, masks rest
-        for token in tokens {
-            let s = token.as_str().unwrap();
-            assert!(s.contains('*'));
-        }
+        assert_eq!(tokens[0].as_str().unwrap(), "********c123");
+        assert_eq!(tokens[1].as_str().unwrap(), "********z789");
+        assert_eq!(tokens[2].as_str().unwrap(), "********f456");
     } else {
         panic!("Expected Serde value for 'list' key");
     }
@@ -389,7 +578,7 @@ fn test_into_redacted_json_enum() {
 
     if let Some(CapturedValue::Serde(json)) = serializer.get("cred") {
         let key = json["ApiKey"]["key"].as_str().unwrap();
-        assert!(key.contains('*'));
+        assert_eq!(key, "************5678");
     } else {
         panic!("Expected Serde value");
     }
@@ -458,8 +647,7 @@ fn test_into_redacted_json_unicode() {
         let message = json["message"].as_str().unwrap();
         // Should be partially masked (Pii keeps last 4)
         // The original has 7 characters, so last 4 should be visible
-        assert!(message.contains('*'));
-        assert!(message.ends_with("ちは世界"));
+        assert_eq!(message, "***ちは世界");
     } else {
         panic!("Expected Serde value");
     }
@@ -529,8 +717,7 @@ fn test_into_redacted_json_custom_classification() {
     if let Some(CapturedValue::Serde(json)) = serializer.get("payment") {
         let card = json["card_number"].as_str().unwrap();
         // Should show only last 4 digits
-        assert!(card.ends_with("1111"));
-        assert!(card.contains('X'));
+        assert_eq!(card, "XXXXXXXXXXXX1111");
         assert_eq!(json["amount"], 99.99);
     } else {
         panic!("Expected Serde value");

@@ -1,6 +1,7 @@
 //! Derive macros for `redaction`.
 //!
-//! This crate generates the traversal code behind `#[derive(Sensitive)]`. It:
+//! This crate generates traversal code behind `#[derive(Sensitive)]` and
+//! `#[derive(SensitiveError)]`. It:
 //! - reads `#[sensitive(...)]` field attributes
 //! - emits a `SensitiveType` implementation that calls into a mapper
 //!
@@ -77,13 +78,18 @@ mod container;
 mod derive_enum;
 mod derive_struct;
 mod generics;
+mod redacted_display;
 mod strategy;
 mod transform;
 mod types;
 use container::{parse_container_options, ContainerOptions};
 use derive_enum::derive_enum;
 use derive_struct::derive_struct;
-use generics::{add_classified_value_bounds, add_container_bounds, add_debug_bounds};
+use generics::{
+    add_classified_value_bounds, add_clone_bounds, add_container_bounds, add_debug_bounds,
+    add_display_bounds, add_redacted_display_bounds,
+};
+use redacted_display::derive_redacted_display;
 
 /// Derives `redaction::SensitiveType` (and related impls) for structs and enums.
 ///
@@ -114,14 +120,36 @@ use generics::{add_classified_value_bounds, add_container_bounds, add_debug_boun
 ///   formatted as the string `"[REDACTED]"` rather than their values. Use `#[sensitive(skip_debug)]`
 ///   on the container to opt out.
 /// - `slog::Value` (behind `cfg(feature = "slog")`): implemented by cloning the value and routing
-///   it through `redaction::slog::IntoRedactedJson`. **Note:** this impl requires the type to
-///   implement `Clone`. The derive first looks for a top-level `slog` crate; if not found, it
-///   checks the `REDACTION_SLOG_CRATE` env var for an alternate path (e.g., `my_log::slog`). If
-///   neither is available, compilation fails with a clear error.
+///   it through `redaction::slog::IntoRedactedJson`. **Note:** this impl requires `Clone` and
+///   `serde::Serialize` because it emits structured JSON. The derive first looks for a top-level
+///   `slog` crate; if not found, it checks the `REDACTION_SLOG_CRATE` env var for an alternate path
+///   (e.g., `my_log::slog`). If neither is available, compilation fails with a clear error.
 #[proc_macro_derive(Sensitive, attributes(sensitive))]
 pub fn derive_sensitive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
-    match expand(input) {
+    match expand(input, SlogMode::RedactedJson) {
+        Ok(tokens) => tokens.into(),
+        Err(err) => err.into_compile_error().into(),
+    }
+}
+
+/// Derives `redaction::SensitiveType` for types that should log without `Serialize`.
+///
+/// This emits the same traversal and redacted `Debug` impls as `Sensitive`, but uses
+/// a `slog::Value` implementation that logs a redacted string derived from a
+/// display template.
+///
+/// The display template is taken from `#[error("...")]` (thiserror-style) or from
+/// doc comments (displaydoc-style). If neither is present, the derive fails with a
+/// compile error to avoid accidental exposure of sensitive fields.
+///
+/// Classified fields referenced in the template are redacted by applying the
+/// policy to an owned copy of the field value, so those field types must
+/// implement `Clone`.
+#[proc_macro_derive(SensitiveError, attributes(sensitive, error))]
+pub fn derive_sensitive_error(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    match expand(input, SlogMode::RedactedDisplayString) {
         Ok(tokens) => tokens.into(),
         Err(err) => err.into_compile_error().into(),
     }
@@ -189,10 +217,20 @@ struct DeriveOutput {
     debug_redacted_generics: Vec<Ident>,
     debug_unredacted_body: TokenStream,
     debug_unredacted_generics: Vec<Ident>,
+    redacted_display_body: Option<TokenStream>,
+    redacted_display_generics: Vec<Ident>,
+    redacted_display_debug_generics: Vec<Ident>,
+    redacted_display_clone_generics: Vec<Ident>,
+    redacted_display_nested_generics: Vec<Ident>,
+}
+
+enum SlogMode {
+    RedactedJson,
+    RedactedDisplayString,
 }
 
 #[allow(clippy::too_many_lines)]
-fn expand(input: DeriveInput) -> Result<TokenStream> {
+fn expand(input: DeriveInput, slog_mode: SlogMode) -> Result<TokenStream> {
     let DeriveInput {
         ident,
         generics,
@@ -205,6 +243,12 @@ fn expand(input: DeriveInput) -> Result<TokenStream> {
 
     let crate_root = crate_root();
 
+    let redacted_display_output = if matches!(slog_mode, SlogMode::RedactedDisplayString) {
+        Some(derive_redacted_display(&ident, &data, &attrs, &generics)?)
+    } else {
+        None
+    };
+
     let derive_output = match &data {
         Data::Struct(data) => {
             let output = derive_struct(&ident, data.clone(), &generics)?;
@@ -216,6 +260,25 @@ fn expand(input: DeriveInput) -> Result<TokenStream> {
                 debug_redacted_generics: output.debug_redacted_generics,
                 debug_unredacted_body: output.debug_unredacted_body,
                 debug_unredacted_generics: output.debug_unredacted_generics,
+                redacted_display_body: redacted_display_output
+                    .as_ref()
+                    .map(|output| output.body.clone()),
+                redacted_display_generics: redacted_display_output
+                    .as_ref()
+                    .map(|output| output.display_generics.clone())
+                    .unwrap_or_default(),
+                redacted_display_debug_generics: redacted_display_output
+                    .as_ref()
+                    .map(|output| output.debug_generics.clone())
+                    .unwrap_or_default(),
+                redacted_display_clone_generics: redacted_display_output
+                    .as_ref()
+                    .map(|output| output.clone_generics.clone())
+                    .unwrap_or_default(),
+                redacted_display_nested_generics: redacted_display_output
+                    .as_ref()
+                    .map(|output| output.nested_generics.clone())
+                    .unwrap_or_default(),
             }
         }
         Data::Enum(data) => {
@@ -228,6 +291,25 @@ fn expand(input: DeriveInput) -> Result<TokenStream> {
                 debug_redacted_generics: output.debug_redacted_generics,
                 debug_unredacted_body: output.debug_unredacted_body,
                 debug_unredacted_generics: output.debug_unredacted_generics,
+                redacted_display_body: redacted_display_output
+                    .as_ref()
+                    .map(|output| output.body.clone()),
+                redacted_display_generics: redacted_display_output
+                    .as_ref()
+                    .map(|output| output.display_generics.clone())
+                    .unwrap_or_default(),
+                redacted_display_debug_generics: redacted_display_output
+                    .as_ref()
+                    .map(|output| output.debug_generics.clone())
+                    .unwrap_or_default(),
+                redacted_display_clone_generics: redacted_display_output
+                    .as_ref()
+                    .map(|output| output.clone_generics.clone())
+                    .unwrap_or_default(),
+                redacted_display_nested_generics: redacted_display_output
+                    .as_ref()
+                    .map(|output| output.nested_generics.clone())
+                    .unwrap_or_default(),
             }
         }
         Data::Union(u) => {
@@ -277,6 +359,39 @@ fn expand(input: DeriveInput) -> Result<TokenStream> {
         }
     };
 
+    let redacted_display_body = derive_output.redacted_display_body.as_ref();
+    let redacted_display_impl = if matches!(slog_mode, SlogMode::RedactedDisplayString) {
+        let redacted_display_generics =
+            add_display_bounds(generics.clone(), &derive_output.redacted_display_generics);
+        let redacted_display_generics = add_debug_bounds(
+            redacted_display_generics,
+            &derive_output.redacted_display_debug_generics,
+        );
+        let redacted_display_generics = add_clone_bounds(
+            redacted_display_generics,
+            &derive_output.redacted_display_clone_generics,
+        );
+        let redacted_display_generics = add_redacted_display_bounds(
+            redacted_display_generics,
+            &derive_output.redacted_display_nested_generics,
+        );
+        let (display_impl_generics, display_ty_generics, display_where_clause) =
+            redacted_display_generics.split_for_impl();
+        let redacted_display_body = redacted_display_body
+            .cloned()
+            .unwrap_or_else(TokenStream::new);
+        quote! {
+            #[cfg(feature = "slog")]
+            impl #display_impl_generics #crate_root::slog::RedactedDisplay for #ident #display_ty_generics #display_where_clause {
+                fn fmt_redacted(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
+                    #redacted_display_body
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
+
     // Only generate slog impl when the slog feature is enabled on redaction-derive.
     // If slog is not available, emit a clear error with instructions.
     #[cfg(feature = "slog")]
@@ -285,29 +400,53 @@ fn expand(input: DeriveInput) -> Result<TokenStream> {
         let mut slog_generics = generics;
         let slog_where_clause = slog_generics.make_where_clause();
         let self_ty: syn::Type = parse_quote!(#ident #ty_generics);
-        slog_where_clause
-            .predicates
-            .push(parse_quote!(#self_ty: ::core::clone::Clone));
-        // IntoRedactedJson requires Self: Serialize, so we add this bound to enable
-        // generic types to work with slog when their type parameters implement Serialize.
-        slog_where_clause
-            .predicates
-            .push(parse_quote!(#self_ty: ::serde::Serialize));
-        slog_where_clause
-            .predicates
-            .push(parse_quote!(#self_ty: #crate_root::slog::IntoRedactedJson));
-        let (slog_impl_generics, slog_ty_generics, slog_where_clause) =
-            slog_generics.split_for_impl();
-        quote! {
-            impl #slog_impl_generics #slog_crate::Value for #ident #slog_ty_generics #slog_where_clause {
-                fn serialize(
-                    &self,
-                    _record: &#slog_crate::Record<'_>,
-                    key: #slog_crate::Key,
-                    serializer: &mut dyn #slog_crate::Serializer,
-                ) -> #slog_crate::Result {
-                    let redacted = #crate_root::slog::IntoRedactedJson::into_redacted_json(self.clone());
-                    #slog_crate::Value::serialize(&redacted, _record, key, serializer)
+        match slog_mode {
+            SlogMode::RedactedJson => {
+                slog_where_clause
+                    .predicates
+                    .push(parse_quote!(#self_ty: ::core::clone::Clone));
+                // IntoRedactedJson requires Self: Serialize, so we add this bound to enable
+                // generic types to work with slog when their type parameters implement Serialize.
+                slog_where_clause
+                    .predicates
+                    .push(parse_quote!(#self_ty: ::serde::Serialize));
+                slog_where_clause
+                    .predicates
+                    .push(parse_quote!(#self_ty: #crate_root::slog::IntoRedactedJson));
+                let (slog_impl_generics, slog_ty_generics, slog_where_clause) =
+                    slog_generics.split_for_impl();
+                quote! {
+                    impl #slog_impl_generics #slog_crate::Value for #ident #slog_ty_generics #slog_where_clause {
+                        fn serialize(
+                            &self,
+                            _record: &#slog_crate::Record<'_>,
+                            key: #slog_crate::Key,
+                            serializer: &mut dyn #slog_crate::Serializer,
+                        ) -> #slog_crate::Result {
+                            let redacted = #crate_root::slog::IntoRedactedJson::into_redacted_json(self.clone());
+                            #slog_crate::Value::serialize(&redacted, _record, key, serializer)
+                        }
+                    }
+                }
+            }
+            SlogMode::RedactedDisplayString => {
+                slog_where_clause
+                    .predicates
+                    .push(parse_quote!(#self_ty: #crate_root::slog::RedactedDisplay));
+                let (slog_impl_generics, slog_ty_generics, slog_where_clause) =
+                    slog_generics.split_for_impl();
+                quote! {
+                    impl #slog_impl_generics #slog_crate::Value for #ident #slog_ty_generics #slog_where_clause {
+                        fn serialize(
+                            &self,
+                            _record: &#slog_crate::Record<'_>,
+                            key: #slog_crate::Key,
+                            serializer: &mut dyn #slog_crate::Serializer,
+                        ) -> #slog_crate::Result {
+                            let redacted = #crate_root::slog::RedactedDisplay::redacted_display(self);
+                            serializer.emit_arguments(key, &format_args!("{}", redacted))
+                        }
+                    }
                 }
             }
         }
@@ -325,6 +464,8 @@ fn expand(input: DeriveInput) -> Result<TokenStream> {
         }
 
         #debug_impl
+
+        #redacted_display_impl
 
         #slog_impl
 

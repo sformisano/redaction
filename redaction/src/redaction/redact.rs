@@ -141,6 +141,18 @@ where
     value.redact_with(&mapper)
 }
 
+/// Applies a classification policy to a classifiable value.
+///
+/// This is a convenience wrapper used by redacted display implementations.
+pub fn apply_classification<C, V>(value: V) -> V
+where
+    C: RedactionPolicy,
+    V: Classifiable,
+{
+    let mapper = PolicyMapper;
+    value.apply_classification::<C, _>(&mapper)
+}
+
 // =============================================================================
 // Classifiable - Recursive classification application
 // =============================================================================
