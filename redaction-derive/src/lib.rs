@@ -112,6 +112,11 @@ use redacted_display::derive_redacted_display;
 ///   the classification's policy. Works for `String`, `Option<String>`, `Vec<String>`, `Box<String>`.
 ///   The type must implement `SensitiveValue`.
 ///
+/// - `#[sensitive]` on `Box<dyn Trait>`: The derive detects the specific syntax
+///   `Box<dyn Trait>` and calls `redaction::redact_boxed`. This only matches the
+///   unqualified form (not `std::boxed::Box<dyn Trait>` or aliases). The trait
+///   object must implement `RedactableBoxed`.
+///
 /// Unions are rejected at compile time.
 ///
 /// # Additional Generated Impls

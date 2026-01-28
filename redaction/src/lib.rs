@@ -7,6 +7,18 @@
 //! The derive macro walks your data and applies the policy at the boundary when
 //! you call `redact()` or `Redactable::redact()`.
 //!
+//! Key rules:
+//! - Use `#[sensitive(Classification)]` for string-like leaf values.
+//! - Use `#[sensitive]` for scalars and nested `Sensitive` types.
+//! - Unannotated fields pass through unchanged.
+//! - `Debug` always prints `"[REDACTED]"` for sensitive fields; policies apply only
+//!   when calling `.redact()`.
+//!
+//! Boxed trait objects:
+//! - `#[sensitive]` supports `Box<dyn Trait>` by calling `redact_boxed`.
+//! - Detection is conservative and only matches the simple `Box<dyn Trait>` syntax,
+//!   not qualified paths or type aliases.
+//!
 //! What this crate does:
 //! - defines classification marker types and the [`Classification`] trait
 //! - defines redaction policies and the `redact` entrypoint
@@ -94,8 +106,9 @@ pub use classification::{
 };
 #[cfg(feature = "policy")]
 pub use redaction::{
-    apply_classification, redact, KeepConfig, MaskConfig, Redactable, RedactionPolicy,
-    ScalarRedaction, SensitiveValue, TextRedactionPolicy, REDACTED_PLACEHOLDER,
+    apply_classification, redact, redact_boxed, KeepConfig, MaskConfig, Redactable,
+    RedactableBoxed, RedactionPolicy, ScalarRedaction, SensitiveValue, TextRedactionPolicy,
+    REDACTED_PLACEHOLDER,
 };
 #[doc(hidden)]
 #[cfg(feature = "policy")]

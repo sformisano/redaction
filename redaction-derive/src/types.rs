@@ -50,6 +50,35 @@ pub(crate) fn is_scalar_type(ty: &syn::Type) -> bool {
     }
 }
 
+/// Checks if a type is `Box<dyn Trait>` (including extra bounds on the trait).
+pub(crate) fn is_boxed_dyn_type(ty: &syn::Type) -> bool {
+    let syn::Type::Path(path) = ty else {
+        return false;
+    };
+
+    if path.path.segments.len() != 1 {
+        return false;
+    }
+
+    let Some(segment) = path.path.segments.first() else {
+        return false;
+    };
+
+    if segment.ident != "Box" {
+        return false;
+    }
+
+    let syn::PathArguments::AngleBracketed(args) = &segment.arguments else {
+        return false;
+    };
+
+    let Some(first) = args.args.first() else {
+        return false;
+    };
+
+    matches!(first, syn::GenericArgument::Type(syn::Type::TraitObject(_)))
+}
+
 #[cfg(test)]
 mod tests {
     use quote::quote;
@@ -100,5 +129,17 @@ mod tests {
     fn absolute_path_is_not_scalar() {
         let ty = parse_type(quote! { ::std::primitive::i32 });
         assert!(!is_scalar_type(&ty));
+    }
+
+    #[test]
+    fn boxed_dyn_trait_detected() {
+        let ty = parse_type(quote! { Box<dyn SomeTrait> });
+        assert!(is_boxed_dyn_type(&ty));
+    }
+
+    #[test]
+    fn boxed_type_is_not_dyn_trait() {
+        let ty = parse_type(quote! { Box<String> });
+        assert!(!is_boxed_dyn_type(&ty));
     }
 }

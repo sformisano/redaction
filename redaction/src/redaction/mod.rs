@@ -16,4 +16,4 @@ pub use policy::{
     KeepConfig, MaskConfig, RedactionPolicy, TextRedactionPolicy, REDACTED_PLACEHOLDER,
 };
 pub use redact::{apply_classification, redact, Classifiable, RedactionMapper, ScalarRedaction};
-pub use sensitive::{Redactable, SensitiveType, SensitiveValue};
+pub use sensitive::{redact_boxed, Redactable, RedactableBoxed, SensitiveType, SensitiveValue};

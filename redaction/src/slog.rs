@@ -82,6 +82,12 @@ impl<T: RedactedDisplay + ?Sized> fmt::Debug for RedactedDisplayWrapper<'_, T> {
     }
 }
 
+impl<T: RedactedDisplay + ?Sized> RedactedDisplay for Box<T> {
+    fn fmt_redacted(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.as_ref().fmt_redacted(f)
+    }
+}
+
 /// Converts values into a `slog::Value` that logs their redacted form as JSON.
 ///
 /// Calling `into_redacted_json` consumes the value, computes `self.redact()`,

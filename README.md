@@ -140,6 +140,9 @@ The `#[sensitive(...)]` attribute controls how each field is handled:
 | `#[sensitive]` | Scalars OR nested `Sensitive` types | Walk containers, or redact scalars to default |
 | `#[sensitive(Class)]` | String-like leaf values | Apply classification's redaction policy |
 
+Classifications are for string-like leaf values; the field type must implement `SensitiveValue`
+and `Classifiable`.
+
 ### Examples
 
 ```rust
@@ -170,7 +173,9 @@ struct User {
 
 ### External Types Just Work
 
-Fields without `#[sensitive]` pass through unchanged. This means external types like `chrono::DateTime`, `rust_decimal::Decimal`, `uuid::Uuid`, or any type you don't control work automatically:
+Fields without `#[sensitive]` pass through unchanged. This means external types like `chrono::DateTime`,
+`rust_decimal::Decimal`, `uuid::Uuid`, or any type you don't control work automatically. Do not
+add `#[sensitive]` unless the type implements `SensitiveType`.
 
 ```rust
 use chrono::{DateTime, Utc};
@@ -340,6 +345,8 @@ slog::info!(logger, "login"; "event" => event);
   consuming the original value.
 - Type must implement `serde::Serialize` because structured logging emits JSON
   derived from the redacted copy.
+- The slog adapter uses `IntoRedactedJson`, which is auto-implemented for
+  `Redactable + Serialize`.
 
 If those bounds are too strict, use `SensitiveError` instead to log a redacted
 string without requiring `Serialize`.
@@ -379,6 +386,13 @@ logs still use a redacted string.
 - `#[sensitive]` scalars use defaults (no extra bounds)
 - `#[sensitive]` non-scalars in template must derive `SensitiveError`
 
+## Feature flags
+
+- `classification` (default): built-in classification types
+- `policy` (default): redaction policies and `.redact()`
+- `slog`: structured logging adapter
+- `testing`: unredacted `Debug` output in tests
+
 ---
 
 ## Reference
@@ -417,7 +431,7 @@ The library uses these core traits, organized by layer:
 - Use `#[sensitive]` on fields of `SensitiveType` types (to walk into them)
 - Use `#[sensitive(Classification)]` on fields of `Classifiable` types (supports nested wrappers)
 
-### Supported Field Types
+### Supported field types
 
 **String-like** (`SensitiveValue`): Use `#[sensitive(Classification)]`:
 - `String`
@@ -474,7 +488,9 @@ error[E0277]: `DateTime<Utc>` does not implement `SensitiveType`
 
 ### Edge Cases
 
-**Scalar type aliases**: Only bare primitive names (`i32`, `bool`) are recognized as scalars. Type aliases like `type MyInt = i32` or qualified paths like `std::primitive::i32` are treated as string-like and require a classification.
+**Scalar type aliases**: Only bare primitive names (`i32`, `bool`) are recognized as scalars. Type aliases like `type MyInt = i32` or qualified paths like `std::primitive::i32` are treated as non-scalars and require `#[sensitive(Classification)]` or pass-through.
+
+**Boxed trait objects**: The derive detects only the simple syntax `Box<dyn Trait>` and calls `redact_boxed`. It does not match `std::boxed::Box<dyn Trait>` or type aliases. The trait object must implement `RedactableBoxed`.
 
 **Foreign string types**: For string-like types from other crates, wrap in a newtype:
 
@@ -491,7 +507,7 @@ impl SensitiveValue for WrappedId {
 
 **Map keys**: Never redacted. Move sensitive data into values.
 
-**Debug vs `redact()`**: The derived `Debug` formats the type normally, but replaces the values of `#[sensitive(...)]` fields with the string `\"[REDACTED]\"`. It does not apply the field's policy. Use `.redact()` when you need policy-based output.
+**Debug vs `redact()`**: The derived `Debug` formats the type normally, but replaces the values of `#[sensitive(...)]` fields with the string `"[REDACTED]"`. It does not apply the field's policy. Use `.redact()` when you need policy-based output.
 
 **Testing**: Enable the `testing` feature to get unredacted `Debug` output in tests:
 

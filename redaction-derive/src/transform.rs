@@ -8,7 +8,10 @@ use quote::quote_spanned;
 use syn::Result;
 
 use crate::{
-    crate_path, generics::collect_generics_from_type, strategy::Strategy, types::is_scalar_type,
+    crate_path,
+    generics::collect_generics_from_type,
+    strategy::Strategy,
+    types::{is_boxed_dyn_type, is_scalar_type},
 };
 
 /// Accumulated state during field processing.
@@ -62,6 +65,11 @@ pub(crate) fn generate_field_transform(
                 // Scalars redact to their default value
                 Ok(quote_spanned! { span =>
                     let #binding = mapper.map_scalar(#binding);
+                })
+            } else if is_boxed_dyn_type(ty) {
+                let redact_boxed_path = crate_path("redact_boxed");
+                Ok(quote_spanned! { span =>
+                    let #binding = #redact_boxed_path(#binding);
                 })
             } else {
                 // Non-scalars: walk using SensitiveType

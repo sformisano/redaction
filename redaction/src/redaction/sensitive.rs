@@ -155,6 +155,29 @@ pub trait Redactable: SensitiveType {
 impl<T> Redactable for T where T: SensitiveType {}
 
 // =============================================================================
+// RedactableBoxed - Object-safe boxed redaction helper
+// =============================================================================
+
+/// Redacts boxed trait objects that expose their own boxed redaction.
+///
+/// This is intentionally minimal and does not require `RedactionMapper` since
+/// boxed trait objects typically provide their own redaction behavior.
+pub trait RedactableBoxed {
+    /// Redacts the boxed value in-place and returns it.
+    #[must_use]
+    fn redact_boxed(self: Box<Self>) -> Box<Self>;
+}
+
+/// Convenience helper for redacting boxed trait objects.
+#[must_use]
+pub fn redact_boxed<T>(value: Box<T>) -> Box<T>
+where
+    T: ?Sized + RedactableBoxed,
+{
+    value.redact_boxed()
+}
+
+// =============================================================================
 // SensitiveType implementations for standard library types
 // =============================================================================
 
