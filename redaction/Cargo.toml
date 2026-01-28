@@ -22,7 +22,7 @@ slog = ["policy", "dep:serde", "dep:serde_json", "dep:slog", "redaction-derive/s
 testing = []
 
 [dependencies]
-redaction-derive = { version = "0.1.7", path = "../redaction-derive" }
+redaction-derive = { version = "0.1.8", path = "../redaction-derive" }
 serde = { version = "1", optional = true, features = ["derive"] }
 serde_json = { version = "1", optional = true }
 slog = { version = "2.8", optional = true, features = ["nested-values"] }

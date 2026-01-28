@@ -92,6 +92,7 @@ fn derive_struct_display(
         Fields::Unit => quote! { Self },
     };
     let body = quote! {
+        #[allow(unused_variables, unused_assignments)]
         match self {
             #pattern => {
                 #format_prelude
@@ -143,6 +144,7 @@ fn derive_enum_display(
     }
 
     let body = quote! {
+        #[allow(unused_variables, unused_assignments)]
         match self {
             #(#arms),*
         }

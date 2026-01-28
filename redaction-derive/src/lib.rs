@@ -148,6 +148,10 @@ pub fn derive_sensitive(input: proc_macro::TokenStream) -> proc_macro::TokenStre
 /// doc comments (displaydoc-style). If neither is present, the derive fails with a
 /// compile error to avoid accidental exposure of sensitive fields.
 ///
+/// The generated `Display` implementation suppresses
+/// `unused_variables`/`unused_assignments` warnings in its match arm bindings,
+/// since omission from the template is often intentional.
+///
 /// Classified fields referenced in the template are redacted by applying the
 /// policy to an owned copy of the field value, so those field types must
 /// implement `Clone`.
