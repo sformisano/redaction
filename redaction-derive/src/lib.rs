@@ -359,7 +359,7 @@ fn expand(input: DeriveInput, slog_mode: SlogMode) -> Result<TokenStream> {
             }
 
             #[cfg(not(any(test, feature = "testing")))]
-            #[allow(unused_variables)]
+            #[allow(unused_variables, unused_assignments)]
             impl #debug_redacted_impl_generics ::core::fmt::Debug for #ident #debug_redacted_ty_generics #debug_redacted_where_clause {
                 fn fmt(&self, f: &mut ::core::fmt::Formatter<'_>) -> ::core::fmt::Result {
                     #debug_redacted_body
@@ -464,6 +464,7 @@ fn expand(input: DeriveInput, slog_mode: SlogMode) -> Result<TokenStream> {
     let slog_impl = quote! {};
 
     let trait_impl = quote! {
+        #[allow(unused_assignments)]
         impl #impl_generics #crate_root::SensitiveType for #ident #ty_generics #where_clause {
             fn redact_with<M: #crate_root::RedactionMapper>(self, mapper: &M) -> Self {
                 use #crate_root::SensitiveType as _;
